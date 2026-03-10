@@ -67,9 +67,9 @@ dashboardWSS.on("connection", (ws) => {
   }));
 
   // Dashboard se command aaye to Android ko bhejo
-  ws.on("message", (data) => {
+ws.on("message", (data) => {
     if (androidClient && androidClient.readyState === WebSocket.OPEN) {
-      androidClient.send(data);
+      androidClient.send(data.toString()); // ✅ String force karo
     }
   });
 
