@@ -8,37 +8,70 @@ app.use(cors());
 
 const server = http.createServer(app);
 
-// 2 Alag WebSocket Servers
-// 1. Android se frame receive karne ke liye
 const androidWSS = new WebSocket.Server({ noServer: true });
-
-// 2. React Dashboard ko frame bhejne ke liye
 const dashboardWSS = new WebSocket.Server({ noServer: true });
 
 let dashboardClients = new Set();
+let androidClient = null;
 
-// Android Connect Hoga
+// Android Connect
 androidWSS.on("connection", (ws) => {
   console.log("📱 Android Connected!");
+  androidClient = ws;
+
+  // Dashboard ko batao Android aaya
+  dashboardClients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify({ type: "android_status", connected: true }));
+    }
+  });
 
   ws.on("message", (data) => {
-    // Saare Dashboard clients ko frame bhejo
-    dashboardClients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(data);
-      }
-    });
+    // Agar text message hai (status update)
+    if (typeof data === "string" || data instanceof Buffer && data[0] === 123) {
+      dashboardClients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(data);
+        }
+      });
+    } else {
+      // Binary = camera frame
+      dashboardClients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(data);
+        }
+      });
+    }
   });
 
   ws.on("close", () => {
     console.log("📱 Android Disconnected!");
+    androidClient = null;
+    dashboardClients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({ type: "android_status", connected: false }));
+      }
+    });
   });
 });
 
-// Dashboard Connect Hoga
+// Dashboard Connect
 dashboardWSS.on("connection", (ws) => {
   console.log("⚛️ Dashboard Connected!");
   dashboardClients.add(ws);
+
+  // Batao Android connected hai ya nahi
+  ws.send(JSON.stringify({
+    type: "android_status",
+    connected: androidClient !== null
+  }));
+
+  // Dashboard se command aaye to Android ko bhejo
+  ws.on("message", (data) => {
+    if (androidClient && androidClient.readyState === WebSocket.OPEN) {
+      androidClient.send(data);
+    }
+  });
 
   ws.on("close", () => {
     dashboardClients.delete(ws);
@@ -46,7 +79,6 @@ dashboardWSS.on("connection", (ws) => {
   });
 });
 
-// Routing — Kaun Kahan Jaega
 server.on("upgrade", (request, socket, head) => {
   if (request.url === "/android") {
     androidWSS.handleUpgrade(request, socket, head, (ws) => {
@@ -59,12 +91,7 @@ server.on("upgrade", (request, socket, head) => {
   }
 });
 
-// Health Check
-app.get("/", (req, res) => {
-  res.send("✅ Camera Server Running!");
-});
+app.get("/", (req, res) => res.send("✅ Camera Server Running!"));
 
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
